@@ -698,6 +698,8 @@ EOF
     # Fix logging paths to use system log directory
     sed -i "s|'logs/error.log'|'/var/log/lslt-portal/error.log'|g" backend/server.js
     sed -i "s|'logs/app.log'|'/var/log/lslt-portal/app.log'|g" backend/server.js
+    sed -i "s|path.join(__dirname, '../../logs/audit-%DATE%.log')|'/var/log/lslt-portal/audit-%DATE%.log'|g" backend/utils/audit.js
+    sed -i "s|symlinkName: 'audit-current.log'|symlinkName: '/var/log/lslt-portal/audit-current.log'|g" backend/utils/audit.js
     
     # Setup database
     sudo -u $SERVICE_USER node backend/scripts/setup-database.js || {

@@ -12,12 +12,12 @@ const auditLogger = winston.createLogger({
   ),
   transports: [
     new DailyRotateFile({
-      filename: path.join(__dirname, '../../logs/audit-%DATE%.log'),
+      filename: '/var/log/lslt-portal/audit-%DATE%.log',
       datePattern: 'YYYY-MM-DD',
       maxSize: '20m',
       maxFiles: '365d', // Keep for 1 year as per security requirements
       createSymlink: true,
-      symlinkName: 'audit-current.log'
+      symlinkName: '/var/log/lslt-portal/audit-current.log'
     }),
     new winston.transports.Console({
       format: winston.format.simple()
