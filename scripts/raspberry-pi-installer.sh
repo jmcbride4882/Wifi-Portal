@@ -678,6 +678,36 @@ EOF
     cd $INSTALL_DIR
     sudo -u $SERVICE_USER npm install --omit=dev
     
+    # Build frontend
+    cd $INSTALL_DIR/frontend
+    sudo -u $SERVICE_USER npm install
+    
+    # Ensure index.html exists in frontend root
+    if [ ! -f "index.html" ]; then
+        warn "index.html not found. Creating it..."
+        cat > index.html << 'EOF'
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="LSLT WiFi Portal - Secure guest WiFi with loyalty rewards" />
+    <meta name="keywords" content="wifi, captive portal, loyalty, guest network" />
+    <title>LSLT WiFi Portal</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+EOF
+        chown $SERVICE_USER:$SERVICE_USER index.html
+    fi
+    
+    sudo -u $SERVICE_USER npm run build
+    cd $INSTALL_DIR
+    
     # Setup Python virtual environment
     sudo -u $SERVICE_USER python3 -m venv python-services/venv
     sudo -u $SERVICE_USER python-services/venv/bin/pip install -r python-services/requirements.txt 2>/dev/null || {
