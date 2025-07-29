@@ -98,7 +98,7 @@ check_requirements() {
     
     # Check internet connectivity
     if ! ping -c 1 google.com &> /dev/null; then
-        error "Internet connection required for installation"
+        error "No internet connection. Please check your network settings."
     fi
     
     log "System requirements check completed"
@@ -108,33 +108,26 @@ check_requirements() {
 setup_system_user() {
     log "Setting up system user and directories..."
     
-    # Create service user
+    # Create system user
     if ! id "$SERVICE_USER" &>/dev/null; then
-        useradd --system --create-home --shell /bin/bash \
-                --home-dir /home/$SERVICE_USER \
-                --comment "LSLT Portal Service User" $SERVICE_USER
+        useradd -r -s /bin/false -d "$INSTALL_DIR" -c "LSLT Portal Service" "$SERVICE_USER"
         log "Created user: $SERVICE_USER"
     else
         log "User $SERVICE_USER already exists"
     fi
     
     # Create directories
-    mkdir -p $INSTALL_DIR
-    mkdir -p $DB_DIR
-    mkdir -p $LOG_DIR
-    mkdir -p $CONFIG_DIR
-    mkdir -p /home/$SERVICE_USER/.ssh
+    mkdir -p "$INSTALL_DIR"
+    mkdir -p "$DB_DIR"
+    mkdir -p "$LOG_DIR"
+    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$DB_DIR/backup"
     
-    # Set ownership and permissions
-    chown -R $SERVICE_USER:$SERVICE_USER $INSTALL_DIR
-    chown -R $SERVICE_USER:$SERVICE_USER $DB_DIR
-    chown -R $SERVICE_USER:$SERVICE_USER $LOG_DIR
-    chown -R $SERVICE_USER:$SERVICE_USER /home/$SERVICE_USER
-    
-    chmod 755 $INSTALL_DIR
-    chmod 755 $DB_DIR
-    chmod 755 $LOG_DIR
-    chmod 700 /home/$SERVICE_USER/.ssh
+    # Set ownership
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$DB_DIR"
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$CONFIG_DIR"
     
     log "System user and directories created"
 }
@@ -181,12 +174,14 @@ update_system() {
     log "System packages updated"
 }
 
-# Install Node.js and npm
+# Install Node.js
 install_nodejs() {
     log "Installing Node.js and npm..."
     
-    # Install Node.js 18.x LTS
+    # Download and run NodeSource setup script
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+    
+    # Install Node.js
     apt-get install -y \
         -o Dpkg::Options::="--force-confdef" \
         -o Dpkg::Options::="--force-confold" \
@@ -196,16 +191,20 @@ install_nodejs() {
     NODE_VERSION=$(node --version)
     NPM_VERSION=$(npm --version)
     
-    log "Node.js installed: $NODE_VERSION"
-    log "npm installed: $NPM_VERSION"
+    if [[ $NODE_VERSION && $NPM_VERSION ]]; then
+        log "Node.js installed: $NODE_VERSION"
+        log "npm installed: $NPM_VERSION"
+    else
+        error "Failed to install Node.js or npm"
+    fi
     
-    # Install global packages
-    npm install -g pm2 concurrently nodemon
+    # Update npm to latest version
+    npm install -g npm@latest
     
     log "Node.js setup completed"
 }
 
-# Install Python and dependencies
+# Install Python dependencies
 install_python() {
     log "Installing Python and dependencies..."
     
@@ -237,13 +236,17 @@ install_python() {
     PYTHON_VERSION=$(python3 --version)
     PIP_VERSION=$(pip3 --version)
     
-    log "Python installed: $PYTHON_VERSION"
-    log "pip installed: $PIP_VERSION"
+    if [[ $PYTHON_VERSION && $PIP_VERSION ]]; then
+        log "Python installed: $PYTHON_VERSION"
+        log "pip installed: $PIP_VERSION"
+    else
+        error "Failed to install Python or pip"
+    fi
     
     log "Python setup completed"
 }
 
-# Install and configure SQLite
+# Install SQLite
 install_sqlite() {
     log "Installing SQLite..."
     
@@ -254,7 +257,12 @@ install_sqlite() {
     
     # Verify installation
     SQLITE_VERSION=$(sqlite3 --version)
-    log "SQLite installed: $SQLITE_VERSION"
+    
+    if [[ $SQLITE_VERSION ]]; then
+        log "SQLite installed: $SQLITE_VERSION"
+    else
+        error "Failed to install SQLite"
+    fi
     
     log "SQLite setup completed"
 }
@@ -263,7 +271,6 @@ install_sqlite() {
 install_nginx() {
     log "Installing and configuring Nginx..."
     
-    # Install Nginx
     apt-get install -y \
         -o Dpkg::Options::="--force-confdef" \
         -o Dpkg::Options::="--force-confold" \
@@ -273,176 +280,8 @@ install_nginx() {
     systemctl enable nginx
     systemctl start nginx
     
-    # Create Nginx configuration for LSLT Portal
-    cat > $NGINX_SITES_DIR/lslt-portal << 'EOF'
-# LSLT WiFi Portal - Nginx Configuration
-
-# Rate limiting
-limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;
-limit_req_zone $binary_remote_addr zone=api:10m rate=60r/m;
-limit_req_zone $binary_remote_addr zone=static:10m rate=100r/m;
-
-# Upstream backend
-upstream lslt_backend {
-    server 127.0.0.1:3001;
-    keepalive 32;
-}
-
-# Upstream Python services
-upstream lslt_python {
-    server 127.0.0.1:8000;
-    keepalive 16;
-}
-
-# Main server block
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name _;
-    
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-    
-    # Gzip compression
-    gzip on;
-    gzip_vary on;
-    gzip_min_length 1024;
-    gzip_proxied any;
-    gzip_comp_level 6;
-    gzip_types
-        text/plain
-        text/css
-        text/xml
-        text/javascript
-        application/json
-        application/javascript
-        application/xml+rss
-        application/atom+xml
-        image/svg+xml;
-    
-    # Log configuration
-    access_log /var/log/nginx/lslt-portal-access.log;
-    error_log /var/log/nginx/lslt-portal-error.log;
-    
-    # Root directory for static files
-    root /opt/lslt-portal/frontend/build;
-    index index.html;
-    
-    # API routes with rate limiting
-    location /api/auth {
-        limit_req zone=auth burst=5 nodelay;
-        proxy_pass http://lslt_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-        proxy_send_timeout 300;
-    }
-    
-    location /api/ {
-        limit_req zone=api burst=20 nodelay;
-        proxy_pass http://lslt_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300;
-    }
-    
-    # Python microservices
-    location /python-api/ {
-        limit_req zone=api burst=10 nodelay;
-        proxy_pass http://lslt_python/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300;
-    }
-    
-    # Health check
-    location /health {
-        proxy_pass http://lslt_backend;
-        access_log off;
-    }
-    
-    # Static files
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        limit_req zone=static burst=50 nodelay;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        try_files $uri =404;
-    }
-    
-    # Captive portal detection (for devices checking connectivity)
-    location /generate_204 {
-        return 204;
-    }
-    
-    location /connecttest.txt {
-        return 200 "Microsoft Connect Test";
-        add_header Content-Type text/plain;
-    }
-    
-    # Captive portal routes
-    location /portal {
-        try_files $uri $uri/ /index.html;
-    }
-    
-    # Admin portal routes
-    location /admin {
-        try_files $uri $uri/ /index.html;
-    }
-    
-    # Staff portal routes
-    location /staff {
-        try_files $uri $uri/ /index.html;
-    }
-    
-    # Default route - serve React app
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    
-    # Security: deny access to sensitive files
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-    
-    location ~ ~$ {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-}
-EOF
-    
-    # Enable the site
-    ln -sf $NGINX_SITES_DIR/lslt-portal /etc/nginx/sites-enabled/
-    rm -f /etc/nginx/sites-enabled/default
-    
-    # Test Nginx configuration
+    # Test nginx configuration
     nginx -t
-    
-    # Reload Nginx
-    systemctl reload nginx
     
     log "Nginx configuration completed"
 }
@@ -451,39 +290,27 @@ EOF
 configure_firewall() {
     log "Configuring firewall (UFW)..."
     
-    # Reset UFW to defaults
-    ufw --force reset
-    
     # Set default policies
+    ufw --force reset
     ufw default deny incoming
     ufw default allow outgoing
     
-    # Allow SSH (important!)
+    # Allow essential services
     ufw allow ssh
+    ufw allow 80/tcp    # HTTP
+    ufw allow 443/tcp   # HTTPS
+    ufw allow 3001/tcp  # Node.js API
+    ufw allow 8000/tcp  # Python services
+    ufw allow 53/tcp    # DNS
+    ufw allow 53/udp    # DNS
     
-    # Allow HTTP and HTTPS
-    ufw allow 80/tcp
-    ufw allow 443/tcp
-    
-    # Allow DNS
-    ufw allow 53
-    
-    # Allow DHCP (if acting as DHCP server)
-    ufw allow 67/udp
-    ufw allow 68/udp
-    
-    # Allow local network access (adjust as needed)
-    ufw allow from 192.168.0.0/16
-    ufw allow from 10.0.0.0/8
-    ufw allow from 172.16.0.0/12
-    
-    # Enable UFW
+    # Enable firewall
     ufw --force enable
     
     log "Firewall configured"
 }
 
-# Install CUPS for printing
+# Install printing support
 install_printing() {
     log "Installing printing support (CUPS)..."
     
@@ -495,24 +322,17 @@ install_printing() {
         cups-client \
         cups-bsd \
         cups-filters \
-        cups-pdf \
+        printer-driver-cups-pdf \
         printer-driver-all \
         hplip \
         system-config-printer
-    
-    # Add service user to lpadmin group
-    usermod -a -G lpadmin $SERVICE_USER
     
     # Enable and start CUPS
     systemctl enable cups
     systemctl start cups
     
-    # Configure CUPS to allow network access
-    sed -i 's/Listen localhost:631/Listen 631/' /etc/cups/cupsd.conf
-    sed -i 's/<Location \/>/<Location \/>\n  Allow @LOCAL/' /etc/cups/cupsd.conf
-    sed -i 's/<Location \/admin>/<Location \/admin>\n  Allow @LOCAL/' /etc/cups/cupsd.conf
-    
-    systemctl restart cups
+    # Add service user to lp group
+    usermod -a -G lp "$SERVICE_USER"
     
     log "Printing support installed"
 }
@@ -526,74 +346,15 @@ install_dnsmasq() {
         -o Dpkg::Options::="--force-confold" \
         dnsmasq dnsmasq-utils
     
-    # Backup original configuration
-    cp /etc/dnsmasq.conf /etc/dnsmasq.conf.backup
-    
-    # Create LSLT Portal dnsmasq configuration
-    cat > /etc/dnsmasq.d/lslt-portal.conf << 'EOF'
-# LSLT Portal DNSmasq Configuration
-
-# Interface to bind to (adjust as needed)
-interface=eth0
-
-# DHCP range (adjust for your network)
-dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,12h
-
-# Router/gateway
-dhcp-option=3,192.168.1.1
-
-# DNS servers
-dhcp-option=6,8.8.8.8,8.8.4.4
-
-# Domain name
-domain=lslt.local
-
-# Local domain resolution
-local=/lslt.local/
-
-# Captive portal redirection
-# Redirect all HTTP requests to captive portal
-address=/#/192.168.1.1
-
-# Log DHCP requests
-log-dhcp
-
-# Cache size
-cache-size=1000
-
-# No hosts file
-no-hosts
-
-# Read additional hosts from file
-addn-hosts=/etc/lslt-portal/hosts
-
-# Upstream DNS servers
-server=8.8.8.8
-server=8.8.4.4
-EOF
-    
-    # Create hosts file for local resolution
-    cat > $CONFIG_DIR/hosts << 'EOF'
-# LSLT Portal Local Hosts
-192.168.1.1 portal.lslt.local
-192.168.1.1 admin.lslt.local
-192.168.1.1 staff.lslt.local
-192.168.1.1 captive.lslt.local
-EOF
-    
-    # Enable and start dnsmasq
+    # Enable dnsmasq
     systemctl enable dnsmasq
-    systemctl start dnsmasq
     
     log "dnsmasq installed and configured"
 }
 
-# Clone and setup application
+# Setup LSLT Portal application
 setup_application() {
     log "Setting up LSLT Portal application..."
-    
-    # Switch to service user
-    cd /tmp
     
     # Clone repository from GitHub
     if [ -d "lslt-portal-source" ]; then
@@ -606,14 +367,9 @@ setup_application() {
     else
         warn "Unable to clone from GitHub. Creating basic structure..."
         
-        # Create basic structure if files not available
-        mkdir -p lslt-portal-source/backend
-        mkdir -p lslt-portal-source/frontend
-        mkdir -p lslt-portal-source/python-services
-        mkdir -p lslt-portal-source/scripts
-        mkdir -p lslt-portal-source/config
+        mkdir -p lslt-portal-source/{backend,frontend,python-services}
         
-        # Create package.json if it doesn't exist
+        # Create fallback package.json with correct dependencies
         if [ ! -f "lslt-portal-source/package.json" ]; then
             cat > lslt-portal-source/package.json << 'EOF'
 {
@@ -623,13 +379,7 @@ setup_application() {
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
-    "dev": "concurrently \"npm run server\" \"npm run client\" \"npm run python-services\"",
-    "server": "nodemon backend/server.js",
-    "client": "cd frontend && npm start",
-    "python-services": "python3 python-services/main.py",
-    "build": "cd frontend && npm run build",
-    "install-all": "npm install && cd frontend && npm install",
-    "setup-db": "node backend/scripts/setup-database.js",
+    "dev": "nodemon backend/server.js",
     "test": "jest"
   },
   "dependencies": {
@@ -654,12 +404,10 @@ setup_application() {
     "express-validator": "^7.0.1",
     "compression": "^1.7.4",
     "express-rate-limit": "^7.1.5",
-    "csv-writer": "^1.6.0",
-    "pdf-lib": "^1.17.1"
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2",
-    "concurrently": "^8.2.2",
+    "nodemon": "^3.0.1",
     "jest": "^29.7.0",
     "supertest": "^6.3.3"
   }
@@ -680,12 +428,35 @@ EOF
     
     # Build frontend
     cd $INSTALL_DIR/frontend
-    sudo -u $SERVICE_USER npm install
+    
+    # Ensure proper frontend setup
+    if [ ! -f "package.json" ]; then
+        warn "Frontend package.json not found. Creating basic one..."
+        sudo -u $SERVICE_USER cat > package.json << 'EOF'
+{
+  "name": "lslt-wifi-portal-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc && vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.1.1",
+    "vite": "^4.5.14",
+    "typescript": "^5.2.2"
+  }
+}
+EOF
+    fi
     
     # Ensure index.html exists in frontend root
     if [ ! -f "index.html" ]; then
         warn "index.html not found. Creating it..."
-        cat > index.html << 'EOF'
+        sudo -u $SERVICE_USER cat > index.html << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -705,8 +476,41 @@ EOF
         chown $SERVICE_USER:$SERVICE_USER index.html
     fi
     
+    # Ensure vite.config.ts has proper configuration
+    if [ ! -f "vite.config.ts" ]; then
+        sudo -u $SERVICE_USER cat > vite.config.ts << 'EOF'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  base: './',
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  build: {
+    outDir: 'build',
+    sourcemap: true,
+  },
+})
+EOF
+        chown $SERVICE_USER:$SERVICE_USER vite.config.ts
+    fi
+    
+    # Install frontend dependencies and build
+    sudo -u $SERVICE_USER npm install
     sudo -u $SERVICE_USER npm run build
+    
     cd $INSTALL_DIR
+    
+    # Fix logging paths to use system log directory
+    sed -i "s|'logs/error.log'|'/var/log/lslt-portal/error.log'|g" backend/server.js 2>/dev/null || true
+    sed -i "s|'logs/app.log'|'/var/log/lslt-portal/app.log'|g" backend/server.js 2>/dev/null || true
+    sed -i "s|path.join(__dirname, '../../logs/audit-%DATE%.log')|'/var/log/lslt-portal/audit-%DATE%.log'|g" backend/utils/audit.js 2>/dev/null || true
+    sed -i "s|symlinkName: 'audit-current.log'|symlinkName: '/var/log/lslt-portal/audit-current.log'|g" backend/utils/audit.js 2>/dev/null || true
     
     # Setup Python virtual environment
     sudo -u $SERVICE_USER python3 -m venv python-services/venv
@@ -730,12 +534,6 @@ email-validator==2.1.0
 EOF
         sudo -u $SERVICE_USER python-services/venv/bin/pip install -r python-services/requirements.txt
     }
-    
-    # Fix logging paths to use system log directory
-    sed -i "s|'logs/error.log'|'/var/log/lslt-portal/error.log'|g" backend/server.js
-    sed -i "s|'logs/app.log'|'/var/log/lslt-portal/app.log'|g" backend/server.js
-    sed -i "s|path.join(__dirname, '../../logs/audit-%DATE%.log')|'/var/log/lslt-portal/audit-%DATE%.log'|g" backend/utils/audit.js
-    sed -i "s|symlinkName: 'audit-current.log'|symlinkName: '/var/log/lslt-portal/audit-current.log'|g" backend/utils/audit.js
     
     # Setup database
     sudo -u $SERVICE_USER node backend/scripts/setup-database.js || {
@@ -859,7 +657,7 @@ EOF
     cat > $SYSTEMD_DIR/lslt-portal-logclean.service << EOF
 [Unit]
 Description=LSLT WiFi Portal - Log Cleanup
-Documentation=https://github.com/lslt-systems/wifi-portal
+
 
 [Service]
 Type=oneshot
@@ -947,31 +745,36 @@ configure_fail2ban() {
 enabled = true
 port = http,https
 filter = lslt-portal-auth
-logpath = /var/log/nginx/lslt-portal-access.log
+logpath = /var/log/lslt-portal/app.log
 maxretry = 5
-bantime = 3600
 findtime = 600
+bantime = 3600
 
-[lslt-portal-api]
+[lslt-portal-dos]
 enabled = true
 port = http,https
-filter = lslt-portal-api
-logpath = /var/log/nginx/lslt-portal-access.log
-maxretry = 20
+filter = lslt-portal-dos
+logpath = /var/log/lslt-portal/app.log
+maxretry = 50
+findtime = 60
 bantime = 1800
-findtime = 300
 EOF
     
-    # Create fail2ban filters
+    # Create filter for authentication failures
     cat > /etc/fail2ban/filter.d/lslt-portal-auth.conf << 'EOF'
 [Definition]
-failregex = ^<HOST> - - \[.*\] "POST /api/auth/(login|signup) HTTP/.*" (400|401|403) .*$
+failregex = ^.*Authentication failed.*IP: <HOST>.*$
+            ^.*Invalid credentials.*IP: <HOST>.*$
+            ^.*Login attempt failed.*IP: <HOST>.*$
+
 ignoreregex =
 EOF
     
-    cat > /etc/fail2ban/filter.d/lslt-portal-api.conf << 'EOF'
+    # Create filter for DoS attacks
+    cat > /etc/fail2ban/filter.d/lslt-portal-dos.conf << 'EOF'
 [Definition]
-failregex = ^<HOST> - - \[.*\] "(GET|POST|PUT|DELETE) /api/.* HTTP/.*" (429|500) .*$
+failregex = ^.*"(GET|POST).*" (4|5)\d\d .*$
+
 ignoreregex =
 EOF
     
@@ -981,36 +784,46 @@ EOF
     log "fail2ban configured"
 }
 
-# Create startup script for network configuration
-create_network_startup() {
+# Create network startup script
+create_network_script() {
     log "Creating network startup script..."
     
+    # Create network setup script
     cat > $CONFIG_DIR/network-setup.sh << 'EOF'
 #!/bin/bash
-# LSLT Portal Network Setup Script
 
-# Configure iptables for captive portal
-# Redirect HTTP traffic to captive portal
-iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 80 -j DNAT --to-destination 192.168.1.1:80
-iptables -t nat -A PREROUTING -i wlan0 -p tcp --dport 80 -j DNAT --to-destination 192.168.1.1:80
-
-# Allow established connections
-iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-# Allow access to local services
-iptables -A FORWARD -d 192.168.1.1 -j ACCEPT
-
-# Save iptables rules
-iptables-save > /etc/iptables/rules.v4
+# LSLT WiFi Portal Network Setup Script
+# This script sets up network interfaces for captive portal functionality
 
 # Enable IP forwarding
 echo 1 > /proc/sys/net/ipv4/ip_forward
-echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 
-echo "Network setup completed"
+# Configure iptables for captive portal (example rules)
+# These should be customized based on your network setup
+
+# Allow traffic on loopback
+iptables -I INPUT -i lo -j ACCEPT
+iptables -I OUTPUT -o lo -j ACCEPT
+
+# Allow established connections
+iptables -I INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow portal traffic
+iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+iptables -I INPUT -p tcp --dport 443 -j ACCEPT
+iptables -I INPUT -p tcp --dport 3001 -j ACCEPT
+iptables -I INPUT -p tcp --dport 8000 -j ACCEPT
+
+# Allow DNS
+iptables -I INPUT -p tcp --dport 53 -j ACCEPT
+iptables -I INPUT -p udp --dport 53 -j ACCEPT
+
+# Log script execution
+echo "$(date): Network setup completed" >> /var/log/lslt-portal/network.log
 EOF
     
     chmod +x $CONFIG_DIR/network-setup.sh
+    chown $SERVICE_USER:$SERVICE_USER $CONFIG_DIR/network-setup.sh
     
     # Create systemd service for network setup
     cat > $SYSTEMD_DIR/lslt-portal-network.service << EOF
@@ -1102,7 +915,7 @@ EOF
 start_services() {
     log "Starting LSLT Portal services..."
     
-    # Start timers
+
     systemctl start lslt-portal-backup.timer
     systemctl start lslt-portal-logclean.timer
     
@@ -1134,59 +947,90 @@ show_completion_info() {
     echo
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                              ║${NC}"
-    echo -e "${GREEN}║        LSLT WiFi Portal Installation Completed!             ║${NC}"
+    echo -e "${GREEN}║                    Installation Complete!                   ║${NC}"
     echo -e "${GREEN}║                                                              ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
-    echo -e "${BLUE}📋 Installation Summary:${NC}"
-    echo "   • Installation Directory: $INSTALL_DIR"
-    echo "   • Database Directory: $DB_DIR"
-    echo "   • Configuration Directory: $CONFIG_DIR"
-    echo "   • Service User: $SERVICE_USER"
+    
+    # Get system IP
+    SYSTEM_IP=$(hostname -I | awk '{print $1}')
+    
+    echo -e "${BLUE}🎉 LSLT WiFi Portal Suite has been successfully installed!${NC}"
     echo
-    echo -e "${BLUE}🌐 Access URLs:${NC}"
-    echo "   • Captive Portal: http://$(hostname -I | awk '{print $1}')/portal"
-    echo "   • Admin Portal: http://$(hostname -I | awk '{print $1}')/admin"
-    echo "   • Staff Portal: http://$(hostname -I | awk '{print $1}')/staff"
-    echo "   • API Health Check: http://$(hostname -I | awk '{print $1}')/health"
+    echo -e "${YELLOW}📋 Access Information:${NC}"
+    echo -e "   🌐 Main Portal:     http://$SYSTEM_IP:3001/"
+    echo -e "   👥 Staff Portal:    http://$SYSTEM_IP:3001/staff"
+    echo -e "   🔧 Admin Portal:    http://$SYSTEM_IP:3001/admin"
+    echo -e "   📱 Captive Portal:  http://$SYSTEM_IP:3001/portal"
     echo
-    echo -e "${BLUE}🔑 Default Admin Credentials:${NC}"
-    echo "   • Email: admin@lslt.local"
-    echo "   • PIN: 280493"
+    echo -e "${YELLOW}🔐 Default Admin Credentials:${NC}"
+    echo -e "   📧 Email: admin@lslt.local"
+    echo -e "   🔢 PIN:   280493"
     echo
-    echo -e "${BLUE}⚙️  System Services:${NC}"
-    echo "   • Main Service: systemctl status lslt-portal"
-    echo "   • Python Services: systemctl status lslt-portal-python"
-    echo "   • View Logs: journalctl -u lslt-portal -f"
+    echo -e "${YELLOW}📁 Important Directories:${NC}"
+    echo -e "   📂 Application:     $INSTALL_DIR"
+    echo -e "   🗄️  Database:       $DB_DIR"
+    echo -e "   📝 Logs:           $LOG_DIR"
+    echo -e "   ⚙️  Configuration:  $CONFIG_DIR"
     echo
-    echo -e "${BLUE}📁 Important Files:${NC}"
-    echo "   • Configuration: $CONFIG_DIR/portal.conf"
-    echo "   • Database: $DB_DIR/lslt_portal.db"
-    echo "   • Nginx Config: $NGINX_SITES_DIR/lslt-portal"
-    echo "   • Log Directory: $LOG_DIR"
+    echo -e "${YELLOW}🔧 System Services:${NC}"
+    echo -e "   🖥️  Main Service:    systemctl status lslt-portal"
+    echo -e "   🐍 Python Services: systemctl status lslt-portal-python"
+    echo -e "   📦 Backup Timer:    systemctl status lslt-portal-backup.timer"
     echo
-    echo -e "${YELLOW}⚠️  Next Steps:${NC}"
-    echo "   1. Configure email settings in $CONFIG_DIR/portal.conf"
-    echo "   2. Configure UniFi controller settings"
-    echo "   3. Set up printer connections in CUPS (http://$(hostname -I | awk '{print $1}'):631)"
-    echo "   4. Configure WiFi access points and captive portal"
-    echo "   5. Test the installation by visiting the access URLs above"
-    echo "   6. Change default admin PIN in the admin portal"
+    echo -e "${YELLOW}📚 Next Steps:${NC}"
+    echo -e "   1. 🌐 Visit the admin portal to configure settings"
+    echo -e "   2. 📧 Update email settings in $CONFIG_DIR/portal.conf"
+    echo -e "   3. 🔧 Configure UniFi controller settings (if applicable)"
+    echo -e "   4. 🖨️  Set up printer connection for voucher printing"
+    echo -e "   5. 🔒 Change default admin credentials"
     echo
-    echo -e "${YELLOW}📖 Documentation:${NC}"
-    echo "   • Full documentation: $INSTALL_DIR/README.md"
-    echo "   • Troubleshooting: $INSTALL_DIR/docs/troubleshooting.md"
-    echo "   • API Documentation: $INSTALL_DIR/docs/api.md"
+    echo -e "${GREEN}✅ The portal is ready to use!${NC}"
     echo
-    echo -e "${GREEN}Installation completed successfully! 🎉${NC}"
+    echo -e "${BLUE}💡 Tips:${NC}"
+    echo -e "   • Check service logs: journalctl -u lslt-portal.service -f"
+    echo -e "   • Backup location: $DB_DIR/backup/"
+    echo -e "   • Restart services: systemctl restart lslt-portal"
+    echo
+    echo -e "${YELLOW}🆘 Support:${NC}"
+    echo -e "   📧 Email: support@lslt.systems"
+    echo -e "   🌐 Docs:  https://github.com/lslt-systems/wifi-portal"
+    echo
+    
+    # Final system status
+    echo -e "${BLUE}📊 System Status:${NC}"
+    if systemctl is-active --quiet lslt-portal.service; then
+        echo -e "   ✅ Main Service: ${GREEN}Running${NC}"
+    else
+        echo -e "   ❌ Main Service: ${RED}Stopped${NC}"
+    fi
+    
+    if systemctl is-active --quiet lslt-portal-python.service; then
+        echo -e "   ✅ Python Services: ${GREEN}Running${NC}"
+    else
+        echo -e "   ❌ Python Services: ${RED}Stopped${NC}"
+    fi
+    
+    if systemctl is-active --quiet nginx; then
+        echo -e "   ✅ Nginx: ${GREEN}Running${NC}"
+    else
+        echo -e "   ❌ Nginx: ${RED}Stopped${NC}"
+    fi
+    
     echo
 }
 
-# Main installation function
+# Cleanup function
+cleanup() {
+    log "Cleaning up temporary files..."
+    rm -rf lslt-portal-source
+    rm -f /tmp/nodejs_setup.sh
+}
+
+# Main execution function
 main() {
+    # Print banner
     print_banner
-    
-    log "Starting LSLT WiFi Portal installation..."
     
     # Run installation steps
     check_requirements
@@ -1203,15 +1047,17 @@ main() {
     create_systemd_services
     configure_logging
     configure_fail2ban
-    create_network_startup
+    create_network_script
     create_config_file
     start_services
-    
     show_completion_info
+    cleanup
+    
+    log "LSLT WiFi Portal installation completed successfully!"
 }
 
 # Handle script interruption
-trap 'error "Installation interrupted"' INT TERM
+trap cleanup EXIT
 
 # Run main function
 main "$@"
