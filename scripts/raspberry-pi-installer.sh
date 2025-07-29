@@ -198,8 +198,7 @@ install_nodejs() {
         error "Failed to install Node.js or npm"
     fi
     
-    # Update npm to latest version
-    npm install -g npm@latest
+    # npm is already at a compatible version, no update needed
     
     log "Node.js setup completed"
 }
