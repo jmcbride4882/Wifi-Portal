@@ -1,0 +1,376 @@
+LSLT WiFi Loyalty & Captive Portal Suite — Full Build Specification with Scenarios & Flows
+
+I. Architecture Overview
+
+Hardware:
+
+Raspberry Pi 4/5, ethernet-connected to UniFi UDM/UDM SE
+
+Tablets/PCs for staff/admin access
+
+80mm receipt printer, A4 HP network printer, optional label printer
+
+All printers managed over LAN (configurable in admin)
+
+Network Topology:
+
+Pi serves as captive portal for guest WiFi network (firewall rules, not VLAN)
+
+UDM enforces device blocks via API calls from Pi suite
+
+Staff use same WiFi SSID as guests but with access by voucher/PIN
+
+Software:
+
+Backend: Node.js/Express, Python microservices for print/UDM control
+
+Frontend: React.js + Tailwind/shadcn/ui, framer-motion for UI
+
+DB: SQLite or PostgreSQL (file-based, secure)
+
+APIs: Square, Unifi UDM, SMTP (email), barcode/QR libraries
+
+Deployment:
+
+Codebase on public GitHub
+
+Pi installer script (removes Pi-hole, sets up dependencies, firewall, etc.)
+
+All configs (printer, network, venues, staff PINs) through admin portal
+
+II. Major User Scenarios and Flowcharts
+
+A. Customer WiFi Onboarding & Loyalty Flow
+
+Step-by-Step:
+
+Connect to Guest WiFi: Device is intercepted and redirected to branded captive portal.
+
+Splash Page: User selects language (EN/ES), sees branding, terms, privacy, and marketing consent offer
+
+Signup Form: Name, email, DOB, consent opt-in (checkbox), T&C display
+
+Validation: Email checked for uniqueness (anti-abuse), DOB must match user’s previous signups, Device count per user enforced (default: 2)
+
+Account Created: User shown “Success!” screen with loyalty progress (e.g. "You are 2 visits from your next reward!")
+
+If opted in: QR voucher instantly emailed (and shown) for free drink/premium WiFi
+
+Data cap set for free tier (750MB), enforced by UDM rules
+
+Session Start: Portal API calls UDM to open device MAC for internet (policy: free tier), Device MAC/session logged in DB
+
+Subsequent Visits: User enters email/DOB, system retrieves loyalty progress
+
+Customer Signup Flowchart (Textual):
+
+Connect to WiFi
+|
+[Captive Portal]
+|
+[Choose Language]
+|
+[Signup: Name/Email/DOB]
+|
+[Opt-in?] --Yes--> [Voucher issued, email/QR]
+|No
+|
+[Abuse Checks: Email, DOB, Device #]
+|
+[Account Created]
+|
+[Data Cap & Device Cap Enforced]
+|
+[WiFi Access Granted]
+|
+[Show Loyalty Progress & Tier Badge]
+
+B. Staff Workflow: Voucher Redemption, Premium WiFi, Staff WiFi
+
+Staff Redemption Flow:
+
+Staff picks up authorized tablet, opens staff portal
+
+Enters Staff PIN (default 280493, min 4 digits, set on first login)
+
+Redemption screen with barcode/QR scanner
+
+Scans customer voucher (QR/barcode from email or print)
+
+System verifies voucher: checks DB, status, expiry, usage
+
+If valid: Voucher is marked redeemed, Receipt is printed (80mm) — no PIN shown on receipt, Customer’s loyalty status updated, All actions logged
+
+If invalid (expired/used/wrong type): Error shown, Event logged for audit
+
+Premium WiFi Voucher Flow:
+
+Customer requests premium WiFi (paid/with receipt)
+
+Staff logs in with PIN
+
+Scans till receipt (barcode), enters sale amount
+
+System generates premium WiFi voucher, linked to sale
+
+Voucher is tracked for redemption/usage
+
+All actions audit-logged
+
+Staff WiFi Use Flow:
+
+Staff opens staff login page (on own device or tablet)
+
+Enters email + staff PIN
+
+If device is authorized: System issues staff WiFi voucher (1 per day limit, tracked), Voucher tied to staff device (MAC, email), Receipt printed for audit, No PIN appears on voucher
+
+If already claimed that day: Error, “Manager override required”, Manager logs in, approves extra issuance (audit-logged)
+
+If login fails: Warning on 2nd failure, device blocked after 3rd (firewall via UDM), Blocked device shown in admin portal
+
+Staff Portal Security Flow (Access Control & Abuse Prevention):
+
+[Staff Login]
+|
+[Enter PIN]
+|
+[Is PIN valid?]--No--> [Add to Failed Attempt Counter]
+|                |
+|          [Counter >=3?]
+|                |
+|           Yes / Block Device (UDM API)
+|
+Yes
+|
+[Access: Redeem/Issue Vouchers, Staff WiFi]
+|
+[All Actions Logged]
+
+C. Admin Portal: Configuration, Reporting, Device Management
+
+Admin Access & Flows:
+
+Admin logs in with PIN or strong password
+
+Landing dashboard: Key metrics (usage, redemptions, blocked devices, staff activity)
+
+Navigation: Site/branding config (logo, theme, contact info), Device/printer management, Loyalty/reward setup, User/device management, Cron job scheduler, Report export, Marketing campaign creator
+
+Guided Mode: Toggle walk-through overlay for new admins/staff
+
+All changes versioned/audited
+
+Device Block/Abuse Handling:
+
+Any device with 3 failed staff/admin login attempts is blocked via UDM firewall API
+
+Admin can view and unblock from admin portal
+
+Blocked devices are logged with reason/timestamp
+
+Repeated abusers are flagged for follow-up
+
+D. Loyalty & Rewards: Tier and Visit Handling
+
+Loyalty Tier Calculation:
+
+Every signup and redemption increments “visit” count per account/group
+
+Loyalty tier badges awarded after N visits (editable per site)
+
+Side-by-side bilingual display (Bronze/Silver/Gold, “Bronce/Plata/Oro”)
+
+Visit-based rewards limited to one/week (configurable)
+
+Chain-wide “Platinum Patron” status visible after multi-site visits
+
+Achievements (e.g. “Family Hero”, “Super Referrer”) tracked and displayed
+
+Reward Issuance Flow:
+
+[Visit Tracked]
+|
+[Is new tier reached?]--No--> [No action]
+|
+Yes
+|
+[Issue Reward (Voucher, QR, Email)]
+|
+[Show/Email Customer, Update Progress Bar]
+
+E. Printing & Hardware Integration
+
+Printer Setup/Use:
+
+Admin adds printer (by IP) and tests config in portal
+
+Receipt, voucher, or report output is formatted bilingual EN/ES
+
+Print only on valid redemption/issuance (no waste)
+
+A4 printer used for reports, label printer for optional voucher labels
+
+F. Marketing & Campaigns
+
+Consent, Opt-In, and Campaign Logic:
+
+Marketing consent required for reward-incentive
+
+Consent opt-in tracked, required for campaign targeting
+
+Campaigns sent by segment: tier, visit, family, referrals, etc.
+
+Re-engagement emails (auto after inactivity), birthday offers at midnight
+
+G. Edge and Error Cases
+
+Duplicate Email/DOB: System prompts user: “Already registered, please login or use forgot password.”
+
+Exceeded Device Cap: Error: “You have reached your device limit. Remove an old device to continue.”
+
+Voucher Abuse (Multiple Claims): System blocks new voucher, flags admin for review.
+
+Printer Offline: Staff sees error, can retry or send to backup printer (configurable).
+
+Network/API Down: Failsafe: All actions queued for retry; warning sent to admin
+
+III. Technical/Developer Details
+
+DB Schema: users, devices, visits, vouchers, rewards, staff, logs, printers, family_groups, sites, campaigns, audit_log
+
+API Endpoints: /api/signup, /api/login, /api/voucher/redeem, /api/staff/issue, /api/device/block, /api/loyalty, /api/report, /api/printer/test, /api/admin/*
+
+All endpoints JWT-secured, staff PINs hashed, sensitive actions logged
+
+Local and remote backup/restore endpoints for disaster recovery
+
+System auto-updates from GitHub, notifies admin when new version available
+
+IV. Sample Real-World Flows
+
+Customer First Visit:
+
+Connects to WiFi
+
+Redirected to LSLT-branded splash
+
+Signs up, opts in to marketing for free drink
+
+Instantly gets loyalty badge “Welcome!” and QR code voucher by email
+
+Uses WiFi, hits 750MB cap, gets upsell for premium voucher
+
+Returning Customer, New Device:
+
+Connects, logs in with email/DOB
+
+If device limit reached, prompted to remove old device
+
+Loyalty progress shown; after 5th visit, new tier reward appears
+
+Staff Redemption:
+
+Staff opens portal on authorized tablet
+
+Logs in with PIN
+
+Scans QR voucher, prints receipt, system logs redemption
+
+Staff WiFi:
+
+Logs in with email+PIN
+
+Gets one voucher/day; override if manager approval
+
+3 failed attempts = device blocked, admin notified
+
+Admin Scenario:
+
+Logs in to dashboard
+
+Sees spike in failed staff logins, reviews abuse log
+
+Updates reward offer, adds “Family Hero” badge
+
+Schedules new marketing campaign for Gold+ members
+
+Exports last month’s report to A4 printer
+
+V. Security Considerations
+
+All personal data encrypted, all sensitive logs kept for 1 year
+
+Abuse detection with device+email fingerprinting
+
+All device blocks enforced via UDM API, with UI to unblock
+
+Staff/manager PINs never shown/printed, and may be changed by staff on first login
+
+VI. Admin Panel: Full Feature List
+
+Dashboard with key metrics
+
+Guided mode and tooltips
+
+All site branding editable (logo, theme, text)
+
+Device/printer management with test buttons
+
+Add/edit staff and manager PINs and roles
+
+Redeem/issue voucher control
+
+View and export daily/weekly reports, audit log
+
+Cron job creator and templates
+
+Security settings, including device block/unblock and access logs
+
+Reward/tier/offer config (per site/package)
+
+Full family/group, referral, and campaign management
+
+VII. Installer and Deployment
+
+Install script checks for and removes Pi-hole
+
+Configures network/firewall for captive portal role
+
+Auto-detects printers on LAN, or manual add via portal
+
+Creates local admin account, sets up DB
+
+Post-install: opens browser with admin login and walk-through overlay
+
+VIII. Advanced Features (Extensible)
+
+Visit/reward rules per site, per package
+
+Segmented and dynamic offers (e.g. “Gold tier gets free cake Thursdays”)
+
+Cross-site chain loyalty badges
+
+Family/group rewards and referral system
+
+QR and digital signature for voucher redemption
+
+Abuse and anomaly alerts with email/SMS notification
+
+IX. Diagram: Flow Summary for All Actors
+
+CUSTOMER      STAFF           MANAGER          ADMIN
+|             |                |               |
+Signup/Login -> Voucher Issue ->  Exception ->   Config
+|             |                |               |
+WiFi Access  <- Voucher Redeem <- Approve   <-   Audit/Reports
+|             |                |               |
+Earn Rewards     |                |               |
+|             |                |               |
+Opt-in/Offers <----------------- Marketing/Campaigns
+|             |                |               |
+Device Limit ----------------> Block/Unblock ----|
+|             |                |               |
+Family Group <------------------- Group Admin ----|
+|             |                |               |
+
