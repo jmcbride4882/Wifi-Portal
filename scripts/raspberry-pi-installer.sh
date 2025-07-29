@@ -590,17 +590,16 @@ setup_application() {
     # Switch to service user
     cd /tmp
     
-    # Clone repository (in production, this would be from your actual repo)
+    # Clone repository from GitHub
     if [ -d "lslt-portal-source" ]; then
         rm -rf lslt-portal-source
     fi
     
-    # Create application structure (copying from current directory)
-    mkdir -p lslt-portal-source
-    
-    # Copy application files
-    cp -r /path/to/current/directory/* lslt-portal-source/ 2>/dev/null || {
-        warn "Unable to copy from current directory. Please manually copy the application files to $INSTALL_DIR"
+    # Clone the application from GitHub
+    if git clone https://github.com/jmcbride4882/Wifi-Portal.git lslt-portal-source 2>/dev/null; then
+        log "Successfully cloned application from GitHub"
+    else
+        warn "Unable to clone from GitHub. Creating basic structure..."
         
         # Create basic structure if files not available
         mkdir -p lslt-portal-source/backend
@@ -635,7 +634,7 @@ setup_application() {
     "jsonwebtoken": "^9.0.2",
     "cors": "^2.8.5",
     "helmet": "^7.1.0",
-    "rate-limiter-flexible": "^3.0.8",
+    "rate-limiter-flexible": "^7.2.0",
     "nodemailer": "^6.9.7",
     "qrcode": "^1.5.3",
     "jsbarcode": "^3.11.5",
@@ -671,7 +670,7 @@ EOF
     
     # Install Node.js dependencies
     cd $INSTALL_DIR
-    sudo -u $SERVICE_USER npm install --production
+    sudo -u $SERVICE_USER npm install --omit=dev
     
     # Setup Python virtual environment
     sudo -u $SERVICE_USER python3 -m venv python-services/venv
