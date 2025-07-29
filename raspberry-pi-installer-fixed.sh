@@ -511,6 +511,28 @@ EOF
     sed -i "s|path.join(__dirname, '../../logs/audit-%DATE%.log')|'/var/log/lslt-portal/audit-%DATE%.log'|g" backend/utils/audit.js 2>/dev/null || true
     sed -i "s|symlinkName: 'audit-current.log'|symlinkName: '/var/log/lslt-portal/audit-current.log'|g" backend/utils/audit.js 2>/dev/null || true
     
+    # Fix helmet configuration to disable HTTPS-forcing headers
+    sed -i '/app\.use(helmet({/,/}));/c\
+app.use(helmet({\
+  contentSecurityPolicy: {\
+    directives: {\
+      defaultSrc: ["'\''self'\''"],\
+      styleSrc: ["'\''self'\''", "'\''unsafe-inline'\''", "https://fonts.googleapis.com"],\
+      fontSrc: ["'\''self'\''", "https://fonts.gstatic.com"],\
+      imgSrc: ["'\''self'\''", "data:", "https:"],\
+      scriptSrc: ["'\''self'\''", "'\''unsafe-inline'\''"],\
+      connectSrc: ["'\''self'\''"]\
+    }\
+  },\
+  crossOriginOpenerPolicy: false,\
+  originAgentCluster: false,\
+  hsts: false\
+}));' backend/server.js 2>/dev/null || true
+    
+    # Fix Python service log paths
+    sed -i 's|../logs/python-services.log|/var/log/lslt-portal/python-services.log|g' python-services/main.py 2>/dev/null || true
+    sed -i 's|logs/python-services.log|/var/log/lslt-portal/python-services.log|g' python-services/main.py 2>/dev/null || true
+    
     # Setup Python virtual environment
     sudo -u $SERVICE_USER python3 -m venv python-services/venv
     sudo -u $SERVICE_USER python-services/venv/bin/pip install -r python-services/requirements.txt 2>/dev/null || {
@@ -538,6 +560,10 @@ EOF
     sudo -u $SERVICE_USER node backend/scripts/setup-database.js || {
         warn "Database setup script not found or failed. Manual setup may be required."
     }
+    
+    # Create Python log file with proper permissions
+    touch $LOG_DIR/python-services.log
+    chown $SERVICE_USER:$SERVICE_USER $LOG_DIR/python-services.log
     
     log "Application setup completed"
 }
@@ -611,6 +637,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=$LOG_DIR
 
 # Resource limits
 LimitNOFILE=65536
