@@ -660,7 +660,7 @@ setup_application() {
 }
 EOF
         fi
-    }
+    fi
     
     # Move application to install directory
     cp -r lslt-portal-source/* $INSTALL_DIR/
