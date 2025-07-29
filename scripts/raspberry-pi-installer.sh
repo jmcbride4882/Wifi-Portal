@@ -226,7 +226,12 @@ install_python() {
         liblcms2-dev \
         libopenjp2-7-dev \
         libtiff5-dev \
-        libwebp-dev
+        libwebp-dev \
+        libcairo2-dev \
+        libpango1.0-dev \
+        libjpeg62-turbo-dev \
+        libgif-dev \
+        librsvg2-dev
     
     # Verify installation
     PYTHON_VERSION=$(python3 --version)
@@ -642,6 +647,7 @@ setup_application() {
     "axios": "^1.6.2",
     "multer": "^1.4.5-lts.1",
     "sharp": "^0.32.6",
+    "canvas": "^2.11.2",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^4.7.1",
     "node-cron": "^3.0.2",
