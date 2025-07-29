@@ -684,7 +684,7 @@ aiohttp==3.9.1
 python-escpos==3.0a9
 pillow==10.1.0
 qrcode[pil]==7.4.2
-python-cups==2.0.1
+pycups==2.0.4
 reportlab==4.0.7
 pydantic==2.5.0
 python-multipart==0.0.6
