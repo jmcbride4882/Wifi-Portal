@@ -6,6 +6,9 @@
 
 set -e  # Exit on any error
 
+# Set non-interactive mode for all package operations
+export DEBIAN_FRONTEND=noninteractive
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -140,14 +143,21 @@ setup_system_user() {
 update_system() {
     log "Updating system packages..."
     
+    # Set non-interactive mode for package operations
+    export DEBIAN_FRONTEND=noninteractive
+    
     # Update package lists
     apt-get update
     
-    # Upgrade existing packages
-    apt-get upgrade -y
+    # Upgrade existing packages with non-interactive configuration handling
+    apt-get upgrade -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold"
     
     # Install essential packages
     apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
         curl \
         wget \
         git \
@@ -177,7 +187,10 @@ install_nodejs() {
     
     # Install Node.js 18.x LTS
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    apt-get install -y nodejs
+    apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
+        nodejs
     
     # Verify installation
     NODE_VERSION=$(node --version)
@@ -198,6 +211,8 @@ install_python() {
     
     # Install Python 3 and pip
     apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
         python3 \
         python3-pip \
         python3-venv \
@@ -227,7 +242,10 @@ install_python() {
 install_sqlite() {
     log "Installing SQLite..."
     
-    apt-get install -y sqlite3 libsqlite3-dev
+    apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
+        sqlite3 libsqlite3-dev
     
     # Verify installation
     SQLITE_VERSION=$(sqlite3 --version)
@@ -241,7 +259,10 @@ install_nginx() {
     log "Installing and configuring Nginx..."
     
     # Install Nginx
-    apt-get install -y nginx
+    apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
+        nginx
     
     # Enable and start Nginx
     systemctl enable nginx
@@ -463,6 +484,8 @@ install_printing() {
     
     # Install CUPS and printer drivers
     apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
         cups \
         cups-client \
         cups-bsd \
@@ -493,7 +516,10 @@ install_printing() {
 install_dnsmasq() {
     log "Installing dnsmasq for DHCP/DNS..."
     
-    apt-get install -y dnsmasq dnsmasq-utils
+    apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
+        dnsmasq dnsmasq-utils
     
     # Backup original configuration
     cp /etc/dnsmasq.conf /etc/dnsmasq.conf.backup
