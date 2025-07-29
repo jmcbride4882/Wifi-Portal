@@ -20,8 +20,8 @@ const logger = winston.createLogger({
     winston.format.json()
   ),
   transports: [
-    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'logs/app.log' }),
+    new winston.transports.File({ filename: '/var/log/lslt-portal/error.log', level: 'error' }),
+    new winston.transports.File({ filename: '/var/log/lslt-portal/app.log' }),
     new winston.transports.Console({
       format: winston.format.simple()
     })

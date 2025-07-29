@@ -695,6 +695,10 @@ EOF
         sudo -u $SERVICE_USER python-services/venv/bin/pip install -r python-services/requirements.txt
     }
     
+    # Fix logging paths to use system log directory
+    sed -i "s|'logs/error.log'|'/var/log/lslt-portal/error.log'|g" backend/server.js
+    sed -i "s|'logs/app.log'|'/var/log/lslt-portal/app.log'|g" backend/server.js
+    
     # Setup database
     sudo -u $SERVICE_USER node backend/scripts/setup-database.js || {
         warn "Database setup script not found or failed. Manual setup may be required."
