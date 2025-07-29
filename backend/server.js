@@ -31,7 +31,7 @@ const logger = winston.createLogger({
 // Trust proxy for accurate IP addresses
 app.set('trust proxy', 1);
 
-// Security middleware
+// Security middleware - HTTP-only configuration
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -39,10 +39,15 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
       connectSrc: ["'self'"]
+      // NOTE: Explicitly NOT including 'upgrade-insecure-requests'
     }
-  }
+  },
+  // Disable headers that force HTTPS/SSL
+  crossOriginOpenerPolicy: false,
+  originAgentCluster: false,
+  hsts: false
 }));
 
 // Rate limiting
